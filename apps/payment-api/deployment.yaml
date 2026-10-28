@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: payments
+  labels:
+    app: payment-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+    spec:
+      containers:
+      - name: payment-api
+        image: python:3.12-slim
+        command: ["/bin/sh", "-c"]
+        args:
+        - pip install --no-cache-dir --quiet flask gunicorn azure-monitor-opentelemetry && exec gunicorn --bind 0.0.0.0:8080 --workers 2 --chdir /app app:app
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_VERSION          # the "release" number; changing it = a new release
+          value: "v1"
+        - name: ERROR_RATE           # fault switch: % of payments that fail
+          value: "0"
+        - name: EXTRA_LATENCY_MS     # fault switch: extra delay per payment
+          value: "0"
+        - name: POD_NAME             # this pod's own name, from Kubernetes
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: OTEL_SERVICE_NAME    # becomes cloud_RoleName in Application Insights
+          value: "payment-api"
+        - name: OTEL_RESOURCE_ATTRIBUTES   # pod name becomes cloud_RoleInstance
+          value: "service.instance.id=$(POD_NAME),service.version=$(APP_VERSION)"
+        - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: appinsights
+              key: connection-string
+        volumeMounts:
+        - name: code
+          mountPath: /app
+        startupProbe:                # allow up to 5 minutes for pip install
+          httpGet: {path: /health, port: 8080}
+          periodSeconds: 10
+          failureThreshold: 30
+        readinessProbe:              # only send traffic when /health answers
+          httpGet: {path: /health, port: 8080}
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {memory: 512Mi}
+      volumes:
+      - name: code
+        configMap:
+          name: payment-api-code

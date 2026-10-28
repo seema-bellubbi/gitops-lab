@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-api-code
+  namespace: payments
+data:
+  app.py: |
+    # Turn on OpenTelemetry first: requests, errors and logs go to Application Insights
+    from azure.monitor.opentelemetry import configure_azure_monitor
+    configure_azure_monitor()
+
+    import os, random, time, logging
+    from flask import Flask, request, jsonify
+
+    logger = logging.getLogger("payment-api")
+    logger.setLevel(logging.INFO)
+    app = Flask(__name__)
+
+    VERSION = os.environ.get("APP_VERSION", "v1")
+    ERROR_RATE = int(os.environ.get("ERROR_RATE", "0"))              # % of payments that fail
+    EXTRA_LATENCY_MS = int(os.environ.get("EXTRA_LATENCY_MS", "0"))  # extra delay per payment
+
+    @app.route("/health")
+    def health():
+        return {"status": "ok", "version": VERSION}
+
+    @app.route("/pay")
+    def pay():
+        policy = request.args.get("policy", "POL1001")
+        if EXTRA_LATENCY_MS:
+            time.sleep(EXTRA_LATENCY_MS / 1000)
+        if random.randint(1, 100) <= ERROR_RATE:
+            logger.error("Payment failed for policy %s on version %s", policy, VERSION)
+            return jsonify({"status": "FAILED", "version": VERSION}), 500
+        return jsonify({"status": "PAID", "policy": policy, "version": VERSION})
