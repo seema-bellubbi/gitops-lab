@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promo-config
+  namespace: payments
+data:
+  banner: "Diwali offer: 5% off annual premium"
